@@ -1,0 +1,8 @@
+{
+  "name": "Remix DelhiTransit — Crowdedness-Aware Bus Journey Planner",
+  "description": "Data-driven Delhi public transport journey planner predicting bus crowding from ETM ticketing, e-ticketing, and GPS telemetry.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

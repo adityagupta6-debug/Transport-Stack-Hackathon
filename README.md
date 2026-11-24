@@ -1,2 +1,94 @@
-# Transport-Stack-Hackathon
-Hackathon prototype for Delhi transport crowd management: explores historical bus ticket (ETM) data by route and hour via a FastAPI service, SQLite store, React/Vite planner concept, and an experimental ML model. Not live, not validated for operations.
+# DelhiTransit — ETM-backed bus demand intelligence prototype
+
+A React + Vite commuter interface with a local FastAPI service, SQLite ETM database, hourly route-demand aggregates, and an experimental scikit-learn model trained from the supplied October 2026 ticket export.
+
+> **Important:** This is not a live DTC/Delhi transport service. The ML target is ticket transactions per route-hour, not real onboard occupancy. The current chronological holdout shows that the model underperforms a simple global-mean baseline. Predictions are experimental and low-confidence; do not present them as accurate crowding or capacity estimates.
+
+## Included data
+
+- `backend/data/october_etm_source.tsv.gz` — original supplied tab-separated export, retained compressed.
+- `backend/data/delhitransit.sqlite3` — populated SQLite database containing all parsed ticket rows plus hourly route aggregates.
+- `backend/data/data_audit.json` — coverage and quality audit.
+- `backend/models/hourly_demand_model.joblib` — trained model artifact.
+- `backend/models/model_metrics.json` — chronological holdout metrics.
+
+The supplied export contains **1,048,575 valid records**, **2,155 distinct route identifiers**, and **17 observed service dates** between **1 October and 30 October 2026** (Asia/Kolkata). It does not contain every calendar day: 15–27 October are absent. Missing dates are not treated as zero-demand days. The original file ends on 30 October; no records have been fabricated to fill gaps.
+
+## Run on Windows 11
+
+### 1. Frontend
+
+Install Node.js LTS, open this folder in VS Code, then:
+
+```powershell
+npm install
+npm run dev
+```
+
+Open the Vite URL shown in the terminal (normally `http://localhost:5173`).
+
+### 2. Backend API
+
+Open a second terminal in the project root:
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r backend/requirements.txt
+py -m uvicorn backend.app.main:app --reload --port 8000
+```
+
+API docs: http://127.0.0.1:8000/docs
+
+The Dataset workspace in the frontend calls the local API to show database coverage and model evaluation. The planner's original route examples remain explicitly labelled as demo estimates and are not silently replaced with predictions for unrelated route IDs.
+
+## Rebuild database and model
+
+The source file is already included. From the project root:
+
+```powershell
+py build_data_assets.py
+py train_model.py
+```
+
+To run backend tests:
+
+```powershell
+pip install pytest httpx
+py -m pytest -q backend/tests
+```
+
+To build the frontend:
+
+```powershell
+npm run build
+```
+
+## API endpoints
+
+- `GET /api/health` — service readiness
+- `GET /api/summary` — dataset coverage and aggregate counts
+- `GET /api/routes?q=8UP&limit=20` — route identifier search
+- `GET /api/demand/8UP?start=2026-10-01&end=2026-10-30` — observed hourly aggregates
+- `GET /api/model/metrics` — chronological holdout metrics
+- `GET /api/predict?route=8UP&service_date=2026-10-30&hour=8` — experimental hourly ticket-volume estimate
+
+The API exposes aggregates only; it does not provide individual ticket records or vehicle registration identifiers.
+
+## Database tables
+
+- `ticket_records` — normalized source transactions with local service date/hour fields.
+- `hourly_route_demand` — per-date, route and hour aggregates: ticket count, passenger-count sum, distinct vehicle count, average fare and AC share.
+- `data_metadata` — source coverage, timezone and data-quality metadata.
+
+## Model methodology and limitations
+
+`train_model.py` trains a `HistGradientBoostingRegressor` to estimate ticket transaction count for a route-hour. It uses route historical mean, cyclical hour/day-of-week features, day of month and weekend flag. The last four observed dates (14, 28, 29 and 30 October) are held out chronologically; all earlier observed dates are used for training.
+
+Current recorded holdout metrics are in `backend/models/model_metrics.json`. The observed coverage shift and missing dates make this a weak basis for generalisation. The model's MAE is worse than the global-mean baseline and its R² is negative. It is included as a reproducible baseline ML component, not a validated prediction product.
+
+Ticket count is a demand proxy only. The source does not establish actual passenger occupancy, boarding/alighting sequence, vehicle capacity, scheduled trips, or GPS position. A true crowding model requires verified GTFS/GTFS-Realtime, capacity data and/or trip-level boarding/alighting or passenger-load observations, followed by temporal validation on more complete periods.
+
+## Original interface caveat
+
+The original sample route catalogue in `src/data/transit.js` is illustrative. It is not matched to the 2,155 source route identifiers. Do not claim that the existing journey planner provides verified live routes or that its illustrative load percentages are generated by this ETM model.

@@ -1,0 +1,91 @@
+import { AlertTriangle, CheckCircle2, Users } from 'lucide-react';
+import { ConfidenceTier, CrowdingLevel } from '../types/transit';
+
+interface CrowdingIndicatorProps {
+  level: CrowdingLevel;
+  loadPercentage?: number;
+  passengers?: number;
+  capacity?: number;
+  confidence?: ConfidenceTier;
+  compact?: boolean;
+}
+
+export function CrowdingIndicator({
+  level,
+  loadPercentage,
+  passengers,
+  capacity,
+  confidence,
+  compact = false,
+}: CrowdingIndicatorProps) {
+  const config =
+    level === 'Seats available'
+      ? {
+          text: 'text-emerald-700',
+          bg: 'bg-emerald-50 border-emerald-200',
+          bar: 'bg-emerald-600',
+          Icon: CheckCircle2,
+        }
+      : level === 'Standing room'
+      ? {
+          text: 'text-amber-700',
+          bg: 'bg-amber-50 border-amber-200',
+          bar: 'bg-amber-600',
+          Icon: Users,
+        }
+      : {
+          text: 'text-red-700',
+          bg: 'bg-red-50 border-red-200',
+          bar: 'bg-red-600',
+          Icon: AlertTriangle,
+        };
+
+  const { Icon } = config;
+
+  if (compact) {
+    return (
+      <span
+        className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-semibold border rounded ${config.bg} ${config.text} whitespace-nowrap shrink-0 tabular-nums`}
+      >
+        <Icon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+        <span>{level}</span>
+        {loadPercentage !== undefined && <span>· {loadPercentage}%</span>}
+      </span>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1 min-w-[152px]">
+      <div className="flex items-center justify-between gap-2">
+        <span
+          className={`inline-flex items-center gap-1.5 text-xs font-semibold ${config.text} whitespace-nowrap`}
+        >
+          <Icon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+          <span>{level}</span>
+        </span>
+        {loadPercentage !== undefined && (
+          <span className="text-xs font-mono font-semibold text-slate-700 tabular-nums">
+            {loadPercentage}%
+          </span>
+        )}
+      </div>
+      {loadPercentage !== undefined && (
+        <div className="w-full h-1.5 bg-slate-100 rounded-sm overflow-hidden">
+          <div
+            className={`h-full ${config.bar} transition-all duration-300`}
+            style={{ width: `${Math.min(100, Math.max(4, loadPercentage))}%` }}
+          />
+        </div>
+      )}
+      <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 tabular-nums">
+        {passengers !== undefined && (
+          <span>
+            ~{passengers}
+            {capacity ? `/${capacity}` : ''} pax
+          </span>
+        )}
+        {confidence && <span>{confidence} conf.</span>}
+      </div>
+    </div>
+  );
+}

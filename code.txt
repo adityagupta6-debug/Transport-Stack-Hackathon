@@ -1,0 +1,464 @@
+
+function TradeoffScatterPlot({
+  options,
+  selectedId,
+  onSelect,
+}: {
+  options: JourneyOption[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+
+  const W = 580;
+  const H = 250;
+  const padL = 48;
+  const padR = 24;
+  const padT = 22;
+  const padB = 42;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+
+  const rawMinT = Math.min(...options.map((o) => o.totalDurationMinutes));
+  const rawMaxT = Math.max(...options.map((o) => o.totalDurationMinutes));
+  const minT = Math.max(5, rawMinT - 6);
+  const maxT = Math.max(minT + 16, rawMaxT + 6);
+
+  const xFor = (mins: number) =>
+    padL + ((mins - minT) / (maxT - minT)) * plotW;
+  const yFor = (loadPct: number) =>
+    H - padB - (Math.min(100, Math.max(0, loadPct)) / 100) * plotH;
+
+  // Compute 4 evenly spaced time ticks
+  const timeTicks = useMemo(() => {
+    const step = (maxT - minT) / 3;
+    return [
+      Math.round(minT),
+      Math.round(minT + step),
+      Math.round(minT + step * 2),
+      Math.round(maxT),
+    ];
+  }, [minT, maxT]);
+
+  // Compute Pareto frontier (routes not strictly dominated in both time AND crowding)
+  const paretoOptions = useMemo(() => {
+    const sorted = [...options].sort(
+      (a, b) =>
+        a.totalDurationMinutes - b.totalDurationMinutes ||
+        a.peakLoadPercentage - b.peakLoadPercentage
+    );
+    const frontier: JourneyOption[] = [];
+    let bestLoadSoFar = Infinity;
+    for (const opt of sorted) {
+      if (opt.peakLoadPercentage < bestLoadSoFar) {
+        frontier.push(opt);
+        bestLoadSoFar = opt.peakLoadPercentage;
+      }
+    }
+    return frontier;
+  }, [options]);
+
+  const paretoPath = useMemo(() => {
+    if (paretoOptions.length < 2) return '';
+    return paretoOptions
+      .map(
+        (opt, idx) =>
+          `${idx === 0 ? 'M' : 'L'} ${xFor(opt.totalDurationMinutes).toFixed(1)} ${yFor(
+            opt.peakLoadPercentage
+          ).toFixed(1)}`
+      )
+      .join(' ');
+  }, [paretoOptions, minT, maxT]);
+
+  const activeOption = useMemo(() => {
+    const targetId = hoveredId ?? selectedId;
+    return options.find((o) => o.id === targetId) ?? options[0];
+  }, [options, hoveredId, selectedId]);
+
+  // Avoid overlapping labels when points sit close together
+  const positionedNodes = useMemo(() => {
+    const sorted = [...options].sort(
+      (a, b) => a.totalDurationMinutes - b.totalDurationMinutes
+    );
+    return sorted.map((opt, idx) => {
+      const cx = xFor(opt.totalDurationMinutes);
+      const cy = yFor(opt.peakLoadPercentage);
+      const prev = idx > 0 ? sorted[idx - 1] : null;
+      const prevClose =
+        prev &&
+        Math.abs(xFor(prev.totalDurationMinutes) - cx) < 62 &&
+        Math.abs(yFor(prev.peakLoadPercentage) - cy) < 28;
+      const placeBelow = cy < padT + 28 || (Boolean(prevClose) && idx % 2 === 1);
+      return { opt, cx, cy, placeBelow };
+    });
+  }, [options, minT, maxT]);
+
+  return (
+    <div className="space-y-3">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full h-60 block select-none"
+        role="img"
+        aria-label="Travel time vs crowding tradeoff scatter chart"
+      >
+        <defs>
+          <linearGradient id="zone-crowded" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#FEE2E2" stopOpacity="0.85" />
+            <stop offset="100%" stopColor="#FEF2F2" stopOpacity="0.65" />
+          </linearGradient>
+          <linearGradient id="zone-standing" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#FEF3C7" stopOpacity="0.7" />
+            <stop offset="100%" stopColor="#FFFBEB" stopOpacity="0.55" />
+          </linearGradient>
+          <linearGradient id="zone-seats" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#D1FAE5" stopOpacity="0.55" />
+            <stop offset="100%" stopColor="#ECFDF5" stopOpacity="0.85" />
+          </linearGradient>
+          <radialGradient id="sweet-spot-glow" cx="15%" cy="88%" r="48%">
+            <stop offset="0%" stopColor="#10B981" stopOpacity="0.22" />
+            <stop offset="100%" stopColor="#10B981" stopOpacity="0" />
+          </radialGradient>
+          <filter id="node-shadow" x="-30%" y="-30%" width="160%" height="160%">
+            <feDropShadow dx="0" dy="1.5" stdDeviation="2" floodColor="#0F172A" floodOpacity="0.18" />
+          </filter>
+        </defs>
+
+        {/* Crowding Band Surfaces */}
+        <rect
+          x={padL}
+          y={yFor(100)}
+          width={plotW}
+          height={yFor(85) - yFor(100)}
+          fill="url(#zone-crowded)"
+          rx={2}
+        />
+        <rect
+          x={padL}
+          y={yFor(85)}
+          width={plotW}
+          height={yFor(55) - yFor(85)}
+          fill="url(#zone-standing)"
+        />
+        <rect
+          x={padL}
+          y={yFor(55)}
+          width={plotW}
+          height={yFor(0) - yFor(55)}
+          fill="url(#zone-seats)"
+          rx={2}
+        />
+
+        {/* Optimal Comfort + Speed Sweet Spot Glow */}
+        <rect x={padL} y={padT} width={plotW} height={plotH} fill="url(#sweet-spot-glow)" />
+
+        {/* Vertical Time Gridlines */}
+        {timeTicks.map((m) => {
+          const x = xFor(m);
+          return (
+            <g key={`vgrid-${m}`}>
+              <line
+                x1={x}
+                y1={padT}
+                x2={x}
+                y2={H - padB}
+                stroke="#94A3B8"
+                strokeOpacity={0.18}
+                strokeDasharray="3 3"
+              />
+              <text
+                x={x}
+                y={H - padB + 15}
+                textAnchor="middle"
+                fontSize="10"
+                fontFamily="JetBrains Mono, monospace"
+                fill="#64748B"
+              >
+                {m}m
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Horizontal Load Thresholds */}
+        {[0, 55, 85, 100].map((pct) => {
+          const y = yFor(pct);
+          const isThreshold = pct === 55 || pct === 85;
+          return (
+            <g key={`hgrid-${pct}`}>
+              <line
+                x1={padL}
+                y1={y}
+                x2={W - padR}
+                y2={y}
+                stroke={isThreshold ? '#64748B' : '#CBD5E1'}
+                strokeOpacity={isThreshold ? 0.35 : 0.7}
+                strokeDasharray={isThreshold ? '4 3' : undefined}
+              />
+              <text
+                x={padL - 8}
+                y={y + 3.5}
+                textAnchor="end"
+                fontSize="10"
+                fontFamily="JetBrains Mono, monospace"
+                fill={isThreshold ? '#334155' : '#64748B'}
+                fontWeight={isThreshold ? '600' : '400'}
+              >
+                {pct}%
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Subtle Zone Watermark Labels inside right margin */}
+        <text
+          x={W - padR - 6}
+          y={yFor(92.5) + 3}
+          textAnchor="end"
+          fontSize="9"
+          fontWeight="600"
+          fill="#B91C1C"
+          fillOpacity={0.75}
+        >
+          Crowded (&gt;85%)
+        </text>
+        <text
+          x={W - padR - 6}
+          y={yFor(70) + 3}
+          textAnchor="end"
+          fontSize="9"
+          fontWeight="600"
+          fill="#B45309"
+          fillOpacity={0.75}
+        >
+          Standing room (56–85%)
+        </text>
+        <text
+          x={W - padR - 6}
+          y={yFor(22) + 3}
+          textAnchor="end"
+          fontSize="9"
+          fontWeight="600"
+          fill="#047857"
+          fillOpacity={0.8}
+        >
+          Seats available (≤55%)
+        </text>
+
+        {/* Sweet Spot Guidance */}
+        <text
+          x={padL + 8}
+          y={H - padB - 8}
+          textAnchor="start"
+          fontSize="9"
+          fontWeight="600"
+          fill="#065F46"
+          fillOpacity={0.7}
+        >
+          Ideal zone: Faster &amp; seated
+        </text>
+
+        {/* Axis Titles */}
+        <text
+          x={padL + plotW / 2}
+          y={H - 6}
+          textAnchor="middle"
+          fontSize="10"
+          fontWeight="600"
+          fill="#475569"
+        >
+          Total Journey Time (minutes, incl. wait &amp; transfer)
+        </text>
+
+        {/* Pareto Frontier Curve */}
+        {paretoPath && (
+          <path
+            d={paretoPath}
+            fill="none"
+            stroke="#2563EB"
+            strokeWidth={1.75}
+            strokeDasharray="5 4"
+            strokeOpacity={0.75}
+          />
+        )}
+
+        {/* Active / Hovered Crosshair Drop Lines */}
+        {activeOption && (() => {
+          const ax = xFor(activeOption.totalDurationMinutes);
+          const ay = yFor(activeOption.peakLoadPercentage);
+          const guideColor =
+            activeOption.overallCrowding === 'Seats available'
+              ? '#16A34A'
+              : activeOption.overallCrowding === 'Standing room'
+              ? '#D97706'
+              : '#DC2626';
+          return (
+            <g pointerEvents="none">
+              <line
+                x1={ax}
+                y1={ay}
+                x2={ax}
+                y2={H - padB}
+                stroke={guideColor}
+                strokeWidth={1.25}
+                strokeDasharray="2.5 2.5"
+                strokeOpacity={0.7}
+              />
+              <line
+                x1={padL}
+                y1={ay}
+                x2={ax}
+                y2={ay}
+                stroke={guideColor}
+                strokeWidth={1.25}
+                strokeDasharray="2.5 2.5"
+                strokeOpacity={0.7}
+              />
+              <rect
+                x={ax - 17}
+                y={H - padB + 2}
+                width={34}
+                height={15}
+                rx={3}
+                fill="#0F172A"
+              />
+              <text
+                x={ax}
+                y={H - padB + 12.5}
+                textAnchor="middle"
+                fontSize="9.5"
+                fontWeight="700"
+                fontFamily="JetBrains Mono, monospace"
+                fill="#FFFFFF"
+              >
+                {activeOption.totalDurationMinutes}m
+              </text>
+            </g>
+          );
+        })()}
+
+        {/* Interactive Route Nodes */}
+        {positionedNodes.map(({ opt, cx, cy, placeBelow }) => {
+          const isActive = opt.id === (hoveredId ?? selectedId);
+          const isSelected = opt.id === selectedId;
+          const fill =
+            opt.overallCrowding === 'Seats available'
+              ? '#16A34A'
+              : opt.overallCrowding === 'Standing room'
+              ? '#D97706'
+              : '#DC2626';
+          const routeTag = opt.segments.map((s) => s.route.routeNumber).join('→');
+          const tagWidth = Math.max(42, routeTag.length * 6.2 + 12);
+          const tagY = placeBelow ? cy + 12 : cy - 26;
+
+          return (
+            <g
+              key={opt.id}
+              className="cursor-pointer"
+              onClick={() => onSelect(opt.id)}
+              onMouseEnter={() => setHoveredId(opt.id)}
+              onMouseLeave={() => setHoveredId(null)}
+            >
+              {(isSelected || isActive) && (
+                <circle
+                  cx={cx}
+                  cy={cy}
+                  r={14}
+                  fill={fill}
+                  fillOpacity={0.18}
+                  stroke={fill}
+                  strokeWidth={1.5}
+                />
+              )}
+
+              {opt.isRecommended && (
+                <circle
+                  cx={cx}
+                  cy={cy}
+                  r={10}
+                  fill="none"
+                  stroke="#2563EB"
+                  strokeWidth={1.5}
+                  strokeDasharray="2 2"
+                />
+              )}
+
+              <circle
+                cx={cx}
+                cy={cy}
+                r={isActive ? 7.5 : 6}
+                fill={fill}
+                stroke="#FFFFFF"
+                strokeWidth={2}
+                filter="url(#node-shadow)"
+              />
+
+              {/* Route Callout Tag */}
+              <g filter="url(#node-shadow)">
+                <rect
+                  x={cx - tagWidth / 2}
+                  y={tagY}
+                  width={tagWidth}
+                  height={16}
+                  rx={4}
+                  fill={isActive ? '#0F172A' : '#FFFFFF'}
+                  stroke={isActive ? '#0F172A' : '#CBD5E1'}
+                  strokeWidth={1}
+                />
+                <text
+                  x={cx}
+                  y={tagY + 11}
+                  textAnchor="middle"
+                  fontSize="9"
+                  fontWeight="700"
+                  fontFamily="JetBrains Mono, monospace"
+                  fill={isActive ? '#FFFFFF' : '#0F172A'}
+                >
+                  {routeTag}
+                </text>
+              </g>
+            </g>
+          );
+        })}
+      </svg>
+
+      {/* Active / Hovered Route Telemetry Readout */}
+      {activeOption && (
+        <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="font-mono font-bold text-slate-900">
+              {activeOption.segments.map((s) => s.route.routeNumber).join(' → ')}
+            </span>
+            <span className="text-slate-300" aria-hidden="true">
+              ·
+            </span>
+            <span className="text-slate-600 truncate">
+              {activeOption.transfers === 0
+                ? 'Direct route'
+                : `1 change at ${activeOption.transferStop?.name.split('/')[0].trim()}`}
+            </span>
+            {activeOption.isRecommended && (
+              <>
+                <span className="text-slate-300" aria-hidden="true">
+                  ·
+                </span>
+                <span className="font-semibold text-blue-700">Recommended</span>
+              </>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3 font-mono text-slate-700 tabular-nums shrink-0">
+            <span>{activeOption.totalDurationMinutes} min</span>
+            <span className="text-slate-300" aria-hidden="true">
+              ·
+            </span>
+            <span>{activeOption.peakLoadPercentage}% peak</span>
+            <span className="text-slate-300" aria-hidden="true">
+              ·
+            </span>
+            <span>{activeOption.seatProbability}% seat chance</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
